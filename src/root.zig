@@ -139,6 +139,14 @@ pub fn apply(allocator: std_.mem.Allocator, a: []const u8, operations: []Operati
     return result;
 }
 
+pub fn packedDiff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.mem.Allocator.Error!PackedDiff {
+    var diff_result = try diff(allocator, a, b);
+    defer diff_result.deinit();
+
+    const result = try pack(allocator, diff_result.operations);
+    return result;
+}
+
 pub fn packedApply(allocator: std_.mem.Allocator, a: []const u8, operations: []PackedOperation) std_.mem.Allocator.Error![]const u8 {
     var b = try std_.ArrayList(u8).initCapacity(allocator, a.len);
     errdefer b.deinit();

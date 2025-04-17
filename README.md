@@ -23,18 +23,18 @@ To use `zmyers` in your Zig project:
 2. Import the `zmyers` module in your code.
 
 ## Usage
-The library provides a single public function, `diff`, which computes the differences between two input strings and returns a slice of `Operation` structs.
+The library provides a single public function, `diff`, which computes the differences between two input strings and returns a `Diff` object.
 
 ### Function Signature
 ```zig
-pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.mem.Allocator.Error![]Operation {
+pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.mem.Allocator.Error!Diff {
 ```
 
 - **Parameters**:
   - `allocator`: A Zig allocator for managing memory.
   - `a`: The source string.
   - `b`: The target string.
-- **Returns**: A slice of `Operation` structs, where each `Operation` is either:
+- **Returns**: `Diff` object that contains slice of `Operation` structs and arena allocator for that slice. Each `Operation` is either:
   - `.delete`: Specifies a position in `a` to remove a character.
   - `.insert`: Specifies a position and a character from `b` to insert.
 - **Errors**: Returns an allocation error if memory cannot be allocated.
@@ -56,15 +56,16 @@ pub fn main() !void {
     }
     const allocator = debug_allocator.allocator();
 
-    const operations = try zmyers.diff(allocator, "abc", "fff");
-    defer allocator.free(operations);
-    for (0..operations.len) |i| {
-        switch (operations[i]) {
-            .delete => {
-                std.debug.print("delete pos: {d}\n", .{operations[i].delete.pos});
+    var diff = try zmyers.diff(allocator, "abc", "fff");
+    defer diff.deinit();
+
+    for (diff.operations) |operation| {
+        switch (operation) {
+            .delete => |delete| {
+                std.debug.print("delete_pos: {d}\n", .{delete.pos});
             },
-            .insert => {
-                std.debug.print("insert pos: {d}, insert_char: {c}\n", .{ operations[i].insert.pos, operations[i].insert.char });
+            .insert => |insert| {
+                std.debug.print("insers_pos: {d}, insert_char: {c}\n", .{ insert.pos, insert.char });
             },
         }
     }
@@ -74,12 +75,12 @@ pub fn main() !void {
 ### Expected Output
 For the input strings `"abc"` and `"fff"`, the output will be:
 ```
-delete pos: 0
-delete pos: 1
-delete pos: 2
-insert pos: 0, insert_char: f
-insert pos: 1, insert_char: f
-insert pos: 2, insert_char: f
+delete_pos: 0
+delete_pos: 1
+delete_pos: 2
+insert_pos: 0, insert_char: f
+insert_pos: 1, insert_char: f
+insert_pos: 2, insert_char: f
 ```
 
 This indicates that to transform `"abc"` into `"fff"`, you need to:

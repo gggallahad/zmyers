@@ -139,6 +139,34 @@ pub fn apply(allocator: std_.mem.Allocator, a: []const u8, operations: []Operati
     return result;
 }
 
+pub fn packedApply(allocator: std_.mem.Allocator, a: []const u8, operations: []PackedOperation) std_.mem.Allocator.Error![]const u8 {
+    var b = try std_.ArrayList(u8).initCapacity(allocator, a.len);
+    errdefer b.deinit();
+
+    try b.appendSlice(a);
+
+    var delete_pos_offset: isize = 0;
+
+    for (operations) |operation| {
+        switch (operation) {
+            .delete => |delete| {
+                for (0..delete.len) |_| {
+                    const pos = @as(usize, @intCast(@as(isize, @intCast(delete.start_pos)) + delete_pos_offset));
+                    _ = b.orderedRemove(pos);
+                    delete_pos_offset -= 1;
+                }
+            },
+            .insert => |insert| {
+                try b.insertSlice(insert.start_pos, insert.chars);
+                delete_pos_offset += @as(isize, @intCast(insert.chars.len));
+            },
+        }
+    }
+
+    const result = try b.toOwnedSlice();
+    return result;
+}
+
 pub fn pack(allocator: std_.mem.Allocator, operations: []Operation) std_.mem.Allocator.Error!PackedDiff {
     const arena_allocator = try PackedDiff.createArenaAllocator(allocator);
     errdefer PackedDiff.destroyArenaAllocator(arena_allocator);

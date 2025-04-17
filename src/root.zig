@@ -1,6 +1,9 @@
 const std_ = @import("std");
 
-pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.mem.Allocator.Error![]Operation {
+pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.mem.Allocator.Error!Diff {
+    const arena_allocator = try Diff.createArenaAllocator(allocator);
+    errdefer Diff.destroyArenaAllocator(arena_allocator);
+
     const n = @as(isize, @intCast(a.len));
     const m = @as(isize, @intCast(b.len));
     const max: isize = n + m;
@@ -56,7 +59,7 @@ pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.me
     var x = @as(isize, @intCast(a.len));
     var y = @as(isize, @intCast(b.len));
 
-    var operations = std_.ArrayList(Operation).init(allocator);
+    var operations = std_.ArrayList(Operation).init(arena_allocator.allocator());
     errdefer operations.deinit();
 
     while (d > 0) : (d -= 1) {
@@ -103,11 +106,42 @@ pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.me
         }
     }
 
-    const result = try operations.toOwnedSlice();
-    std_.mem.reverse(Operation, result);
+    const operations_slice = try operations.toOwnedSlice();
+    std_.mem.reverse(Operation, operations_slice);
 
+    const result = Diff.init(arena_allocator, operations_slice);
     return result;
 }
+
+pub const Diff = struct {
+    arena_allocator: *std_.heap.ArenaAllocator,
+    operations: []Operation,
+
+    fn createArenaAllocator(allocator: std_.mem.Allocator) !*std_.heap.ArenaAllocator {
+        const arena_allocator = try allocator.create(std_.heap.ArenaAllocator);
+        arena_allocator.* = std_.heap.ArenaAllocator.init(allocator);
+        return arena_allocator;
+    }
+
+    fn destroyArenaAllocator(arena_allocator: *std_.heap.ArenaAllocator) void {
+        const allocator = arena_allocator.child_allocator;
+        arena_allocator.deinit();
+        allocator.destroy(arena_allocator);
+    }
+
+    fn init(arena_allocator: *std_.heap.ArenaAllocator, operations: []Operation) Diff {
+        return Diff{
+            .arena_allocator = arena_allocator,
+            .operations = operations,
+        };
+    }
+
+    pub fn deinit(self: *Diff) void {
+        const allocator = self.arena_allocator.child_allocator;
+        self.arena_allocator.deinit();
+        allocator.destroy(self.arena_allocator);
+    }
+};
 
 pub const Operation = union(enum) {
     delete: Delete,

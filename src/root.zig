@@ -15,8 +15,8 @@ pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.me
 
     var trace = std_.ArrayList([]isize).init(allocator);
     defer {
-        for (0..trace.items.len) |i| {
-            allocator.free(trace.items[i]);
+        for (trace.items) |item| {
+            allocator.free(item);
         }
         trace.deinit();
     }
@@ -110,6 +110,32 @@ pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.me
     std_.mem.reverse(Operation, operations_slice);
 
     const result = Diff.init(arena_allocator, operations_slice);
+    return result;
+}
+
+pub fn apply(allocator: std_.mem.Allocator, a: []const u8, operations: []Operation) std_.mem.Allocator.Error![]const u8 {
+    var b = try std_.ArrayList(u8).initCapacity(allocator, a.len);
+    errdefer b.deinit();
+
+    try b.appendSlice(a);
+
+    var delete_pos_offset: isize = 0;
+
+    for (operations) |operation| {
+        switch (operation) {
+            .delete => |delete| {
+                const pos = @as(usize, @intCast(@as(isize, @intCast(delete.pos)) + delete_pos_offset));
+                _ = b.orderedRemove(pos);
+                delete_pos_offset -= 1;
+            },
+            .insert => |insert| {
+                try b.insert(insert.pos, insert.char);
+                delete_pos_offset += 1;
+            },
+        }
+    }
+
+    const result = try b.toOwnedSlice();
     return result;
 }
 

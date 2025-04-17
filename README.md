@@ -23,24 +23,76 @@ To use `zmyers` in your Zig project:
 2. Import the `zmyers` module in your code.
 
 ## Usage
-The library provides a single public function, `diff`, which computes the differences between two input strings and returns a `Diff` object.
+The library provides two main public functions:
+- `diff`: Computes the differences between two input strings and returns a `Diff` object containing individual operations.
+- `pack`: Groups the operations from a `Diff` object into a more compact `PackedDiff` object, combining consecutive deletions and insertions.
 
-### Function Signature
+### Function: `diff`
+Computes the differences between two input strings using the Myers diff algorithm.
+
+#### Function Signature
 ```zig
-pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.mem.Allocator.Error!Diff {
+pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.mem.Allocator.Error!Diff
 ```
 
 - **Parameters**:
   - `allocator`: A Zig allocator for managing memory.
   - `a`: The source string.
   - `b`: The target string.
-- **Returns**: `Diff` object that contains slice of `Operation` structs and arena allocator for that slice. Each `Operation` is either:
+- **Returns**: A `Diff` object that contains a slice of `Operation` structs and an arena allocator for that slice. Each `Operation` is either:
   - `.delete`: Specifies a position in `a` to remove a character.
   - `.insert`: Specifies a position and a character from `b` to insert.
+    ```zig
+    pub const Operation = union(enum) {
+        delete: Delete,
+        insert: Insert,
+    
+        pub const Delete = struct {
+            pos: usize,
+        };
+    
+        pub const Insert = struct {
+            pos: usize,
+            char: u8,
+        };
+    };
+    ```
+- **Errors**: Returns an allocation error if memory cannot be allocated.
+
+### Function: `pack`
+Groups a slice of `Operation` structs into a more compact representation by combining consecutive deletions and insertions.
+
+#### Function Signature
+```zig
+pub fn pack(allocator: std_.mem.Allocator, operations: []Operation) std_.mem.Allocator.Error!PackedDiff
+```
+
+- **Parameters**:
+  - `allocator`: A Zig allocator for managing memory.
+  - `operations`: A slice of `Operation` structs, typically obtained from a `Diff` object.
+- **Returns**: A `PackedDiff` object that contains a slice of `PackedOperation` structs and an arena allocator for that slice. Each `PackedOperation` is either:
+  - `.delete`: Specifies a starting position in `a` and the number of characters to remove.
+  - `.insert`: Specifies a starting position and a slice of characters from `b` to insert.
+    ```zig
+    pub const PackedOperation = union(enum) {
+        delete: Delete,
+        insert: Insert,
+    
+        pub const Delete = struct {
+            start_pos: usize,
+            len: usize,
+        };
+    
+        pub const Insert = struct {
+            start_pos: usize,
+            chars: []const u8,
+        };
+    };
+    ```
 - **Errors**: Returns an allocation error if memory cannot be allocated.
 
 ### Example
-The following example demonstrates how to use `zmyers` to compute the differences between `"abc"` and `"fff"`:
+The following example demonstrates how to use `zmyers` to compute the differences between `"abc"` and `"fff"`, and then pack the resulting operations into a more compact form:
 
 ```zig
 const std = @import("std");
@@ -59,13 +111,29 @@ pub fn main() !void {
     var diff = try zmyers.diff(allocator, "abc", "fff");
     defer diff.deinit();
 
+    std.debug.print("diff:\n", .{});
     for (diff.operations) |operation| {
         switch (operation) {
             .delete => |delete| {
-                std.debug.print("delete_pos: {d}\n", .{delete.pos});
+                std.debug.print("delete from pos {d}\n", .{delete.pos});
             },
             .insert => |insert| {
-                std.debug.print("insers_pos: {d}, insert_char: {c}\n", .{ insert.pos, insert.char });
+                std.debug.print("insert in pos {d} char \"{c}\"\n", .{insert.pos, insert.char});
+            },
+        }
+    }
+
+    std.debug.print("\npacked diff:\n", .{});
+    var packed_diff = try zmyers.pack(allocator, diff.operations);
+    defer packed_diff.deinit();
+
+    for (packed_diff.operations) |packed_operation| {
+        switch (packed_operation) {
+            .delete => |delete| {
+                std.debug.print("delete from pos {d} {d} chars\n", .{delete.start_pos, delete.len});
+            },
+            .insert => |insert| {
+                std.debug.print("insert in pos {d} chars \"{s}\"\n", .{insert.start_pos, insert.chars});
             },
         }
     }
@@ -75,21 +143,33 @@ pub fn main() !void {
 ### Expected Output
 For the input strings `"abc"` and `"fff"`, the output will be:
 ```
-delete_pos: 0
-delete_pos: 1
-delete_pos: 2
-insert_pos: 0, insert_char: f
-insert_pos: 1, insert_char: f
-insert_pos: 2, insert_char: f
+diff:
+delete from pos 0
+delete from pos 1
+delete from pos 2
+insert in pos 0 char "f"
+insert in pos 1 char "f"
+insert in pos 2 char "f"
+
+packed diff:
+delete from pos 0 3 chars
+insert in pos 0 chars "fff"
 ```
 
-This indicates that to transform `"abc"` into `"fff"`, you need to:
+### Explanation
+To transform `"abc"` into `"fff"`, the `diff` function generates the following operations:
 - Delete the character at position 0 (`a`).
 - Delete the character at position 1 (`b`).
 - Delete the character at position 2 (`c`).
 - Insert `f` at position 0.
 - Insert `f` at position 1.
 - Insert `f` at position 2.
+
+The `pack` function then groups these operations into a more compact form:
+- Combine the three deletions into a single operation: delete 3 characters starting from position 0.
+- Combine the three insertions into a single operation: insert the string `"fff"` at position 0.
+
+This packed representation reduces the memory footprint and simplifies applying the diff in scenarios where consecutive operations can be processed together.
 
 ## Contributing
 Contributions are welcome! If you have ideas for optimizations, additional features, or bug fixes, please open an issue or submit a pull request.

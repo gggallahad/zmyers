@@ -2,13 +2,6 @@
 
 `zmyers` is a basic implementation of the Myers diff algorithm written in Zig. The Myers diff algorithm is used to compute the shortest edit script (SES) between two sequences, identifying the minimal set of operations (`delete` and `insert`) needed to transform one sequence into another. This library is designed for simplicity and clarity, making it suitable for educational purposes or as a starting point for more advanced diff-based applications.
 
-## Features
-- Implements the classic Myers diff algorithm.
-- Returns a sequence of operations (`delete` and `insert`) without `equal` operations, focusing only on changes.
-
-## Limitations
-- **Basic Implementation**: This is a straightforward implementation based on the original Myers diff algorithm. It does not include optimizations such as grouping operations into ranges (e.g., deleting a range of characters or inserting a slice) or linear space refinements mentioned in the original paper.
-
 ## Based On
 This implementation is heavily inspired by the following articles by James Coglan, which provide a clear and detailed explanation of the Myers diff algorithm:
 - [The Myers Diff Algorithm — Part 1](https://blog.jcoglan.com/2017/02/12/the-myers-diff-algorithm-part-1/)
@@ -17,18 +10,24 @@ This implementation is heavily inspired by the following articles by James Cogla
 
 These articles served as the primary reference for translating the algorithm from its theoretical form into a working Zig implementation.
 
-## Installation
-To use `zmyers` in your Zig project:
-1. Add the library as a dependency in your `build.zig` file.
-2. Import the `zmyers` module in your code.
+## Features
+- Implements the classic Myers diff algorithm for computing the minimal set of operations to transform one string into another. Returns a sequence of operations (`delete` and `insert`) without `equal` operations, focusing only on changes.
+- Supports applying computed differences to transform the source string into the target string.
+- Provides grouping of operations into a compact `PackedDiff` format, combining consecutive deletions and insertions for efficiency.
+
+## Limitations
+- **Basic Implementation**: This is a straightforward implementation based on the original Myers diff algorithm. It does not include optimizations such linear space refinements mentioned in the original paper.
 
 ## Usage
-The library provides two main public functions:
+The library provides six main public functions:
 - `diff`: Computes the differences between two input strings and returns a `Diff` object containing individual operations.
-- `pack`: Groups the operations from a `Diff` object into a more compact `PackedDiff` object, combining consecutive deletions and insertions.
+- `apply`: Applies a sequence of `Operation` structs to a source string, producing the transformed string.
+- `packedDiff`: Computes the differences between two input strings and returns a `PackedDiff` object containing grouped operations.
+- `packedApply`: Applies a sequence of `PackedOperation` structs to a source string, producing the transformed string.
+- `pack`: Groups a sequence of `Operation` structs into a more compact `PackedDiff` object.
+- `unpack`: Converts a sequence of `PackedOperation` structs back into a `Diff` object with individual operations.
 
 ### Function: `diff`
-Computes the differences between two input strings using the Myers diff algorithm.
 
 #### Function Signature
 ```zig
@@ -39,18 +38,27 @@ pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.me
   - `allocator`: A Zig allocator for managing memory.
   - `a`: The source string.
   - `b`: The target string.
-- **Returns**: A `Diff` object that contains a slice of `Operation` structs and an arena allocator for that slice. Each `Operation` is either:
+- **Returns**: A `Diff` object containing an arena allocator and a slice of `Operation` structs. Each `Operation` is either:
   - `.delete`: Specifies a position in `a` to remove a character.
   - `.insert`: Specifies a position and a character from `b` to insert.
     ```zig
+    pub const Diff = struct {
+        arena_allocator: *std_.heap.ArenaAllocator,
+        operations: []Operation,
+
+        pub fn deinit(self: *Diff) void {
+            ...
+        }
+    };
+
     pub const Operation = union(enum) {
         delete: Delete,
         insert: Insert,
-    
+
         pub const Delete = struct {
             pos: usize,
         };
-    
+
         pub const Insert = struct {
             pos: usize,
             char: u8,
@@ -59,8 +67,76 @@ pub fn diff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.me
     ```
 - **Errors**: Returns an allocation error if memory cannot be allocated.
 
+### Function: `apply`
+
+#### Function Signature
+```zig
+pub fn apply(allocator: std_.mem.Allocator, a: []const u8, operations: []Operation) std_.mem.Allocator.Error![]const u8
+```
+
+- **Parameters**:
+  - `allocator`: A Zig allocator for managing memory.
+  - `a`: The source string.
+  - `operations`: A slice of `Operation` structs, typically obtained from a `Diff` object.
+- **Returns**: The transformed string after applying all operations.
+- **Errors**: Returns an allocation error if memory cannot be allocated.
+
+### Function: `packedDiff`
+
+#### Function Signature
+```zig
+pub fn packedDiff(allocator: std_.mem.Allocator, a: []const u8, b: []const u8) std_.mem.Allocator.Error!PackedDiff
+```
+
+- **Parameters**:
+  - `allocator`: A Zig allocator for managing memory.
+  - `a`: The source string.
+  - `b`: The target string.
+- **Returns**: A `PackedDiff` object containing an arena allocator and a slice of `PackedOperation` structs. Each `PackedOperation` is either:
+  - `.delete`: Specifies a starting position in `a` and the number of characters to remove.
+  - `.insert`: Specifies a starting position and a slice of characters from `b` to insert.
+    ```zig
+    pub const PackedDiff = struct {
+        arena_allocator: *std_.heap.ArenaAllocator,
+        operations: []PackedOperation,
+        
+        pub fn deinit(self: *PackedDiff) void {
+            ...
+        }
+    };
+
+    pub const PackedOperation = union(enum) {
+        delete: Delete,
+        insert: Insert,
+
+        pub const Delete = struct {
+            start_pos: usize,
+            len: usize,
+        };
+
+        pub const Insert = struct {
+            start_pos: usize,
+            chars: []const u8,
+        };
+    };
+    ```
+- **Errors**: Returns an allocation error if memory cannot be allocated.
+
+### Function: `packedApply`
+
+#### Function Signature
+```zig
+pub fn packedApply(allocator: std_.mem.Allocator, a: []const u8, operations: []PackedOperation) std_.mem.Allocator.Error![]const u8
+```
+
+- **Parameters**:
+  - `allocator`: A Zig allocator for managing memory.
+  - `a`: The source string.
+  - `operations`: A slice of `PackedOperation` structs, typically obtained from a `PackedDiff` object.
+- **Returns**: The transformed string after applying all packed operations.
+- **Errors**: Returns an allocation error if memory cannot be allocated.
+
 ### Function: `pack`
-Groups a slice of `Operation` structs into a more compact representation by combining consecutive deletions and insertions.
 
 #### Function Signature
 ```zig
@@ -70,29 +146,24 @@ pub fn pack(allocator: std_.mem.Allocator, operations: []Operation) std_.mem.All
 - **Parameters**:
   - `allocator`: A Zig allocator for managing memory.
   - `operations`: A slice of `Operation` structs, typically obtained from a `Diff` object.
-- **Returns**: A `PackedDiff` object that contains a slice of `PackedOperation` structs and an arena allocator for that slice. Each `PackedOperation` is either:
-  - `.delete`: Specifies a starting position in `a` and the number of characters to remove.
-  - `.insert`: Specifies a starting position and a slice of characters from `b` to insert.
-    ```zig
-    pub const PackedOperation = union(enum) {
-        delete: Delete,
-        insert: Insert,
-    
-        pub const Delete = struct {
-            start_pos: usize,
-            len: usize,
-        };
-    
-        pub const Insert = struct {
-            start_pos: usize,
-            chars: []const u8,
-        };
-    };
-    ```
+- **Returns**: A `PackedDiff` object containing an arena allocator and a slice of `PackedOperation` structs, as described in `packedDiff`.
+- **Errors**: Returns an allocation error if memory cannot be allocated.
+
+### Function: `unpack`
+
+#### Function Signature
+```zig
+pub fn unpack(allocator: std_.mem.Allocator, packed_operations: []PackedOperation) std_.mem.Allocator.Error!Diff
+```
+
+- **Parameters**:
+  - `allocator`: A Zig allocator for managing memory.
+  - `packed_operations`: A slice of `PackedOperation` structs, typically obtained from a `PackedDiff` object.
+- **Returns**: A `Diff` object containing an arena allocator and a slice of `Operation` structs, as described in `diff`.
 - **Errors**: Returns an allocation error if memory cannot be allocated.
 
 ### Example
-The following example demonstrates how to use `zmyers` to compute the differences between `"abc"` and `"fff"`, and then pack the resulting operations into a more compact form:
+The following example demonstrates how to use `zmyers` to compute the differences between `"abcde"` and `"ffaffcffeff"`:
 
 ```zig
 const std = @import("std");
@@ -108,68 +179,78 @@ pub fn main() !void {
     }
     const allocator = debug_allocator.allocator();
 
-    var diff = try zmyers.diff(allocator, "abc", "fff");
-    defer diff.deinit();
+    const a = "abcde";
+    std.debug.print("a: {s}\n", .{a});
+    const b = "ffaffcffeff";
+    std.debug.print("b: {s}\n", .{b});
 
-    std.debug.print("diff:\n", .{});
+    var diff = try zmyers.diff(allocator, a, b);
+    defer diff.deinit();
+    std.debug.print("\ndiff:\n", .{});
     for (diff.operations) |operation| {
         switch (operation) {
             .delete => |delete| {
                 std.debug.print("delete from pos {d}\n", .{delete.pos});
             },
             .insert => |insert| {
-                std.debug.print("insert in pos {d} char \"{c}\"\n", .{insert.pos, insert.char});
+                std.debug.print("insert in pos {d} char \"{c}\"\n", .{ insert.pos, insert.char });
             },
         }
     }
 
-    std.debug.print("\npacked diff:\n", .{});
-    var packed_diff = try zmyers.pack(allocator, diff.operations);
+    var packed_diff = try zmyers.packedDiff(allocator, a, b);
     defer packed_diff.deinit();
-
+    std.debug.print("\npacked diff:\n", .{});
     for (packed_diff.operations) |packed_operation| {
         switch (packed_operation) {
             .delete => |delete| {
-                std.debug.print("delete from pos {d} {d} chars\n", .{delete.start_pos, delete.len});
+                std.debug.print("delete from pos {d} {d} chars\n", .{ delete.start_pos, delete.len });
             },
             .insert => |insert| {
-                std.debug.print("insert in pos {d} chars \"{s}\"\n", .{insert.start_pos, insert.chars});
+                std.debug.print("insert in pos {d} chars \"{s}\"\n", .{ insert.start_pos, insert.chars });
+            },
+        }
+    }
+
+    const apply = try zmyers.apply(allocator, a, diff.operations);
+    defer allocator.free(apply);
+    std.debug.print("\napply:\n", .{});
+    std.debug.print("{s}\n", .{apply});
+
+    const packed_apply = try zmyers.packedApply(allocator, a, packed_diff.operations);
+    defer allocator.free(packed_apply);
+    std.debug.print("\npacked_apply:\n", .{});
+    std.debug.print("{s}\n", .{packed_apply});
+
+    var pack = try zmyers.pack(allocator, diff.operations);
+    defer pack.deinit();
+    std.debug.print("\npack:\n", .{});
+    for (pack.operations) |pack_operation| {
+        switch (pack_operation) {
+            .delete => |delete| {
+                std.debug.print("delete from pos {d} {d} chars\n", .{ delete.start_pos, delete.len });
+            },
+            .insert => |insert| {
+                std.debug.print("insert in pos {d} chars \"{s}\"\n", .{ insert.start_pos, insert.chars });
+            },
+        }
+    }
+
+    var unpack = try zmyers.unpack(allocator, packed_diff.operations);
+    defer unpack.deinit();
+    std.debug.print("\nunpack:\n", .{});
+    for (unpack.operations) |operation| {
+        switch (operation) {
+            .delete => |delete| {
+                std.debug.print("delete from pos {d}\n", .{delete.pos});
+            },
+            .insert => |insert| {
+                std.debug.print("insert in pos {d} char \"{c}\"\n", .{ insert.pos, insert.char });
             },
         }
     }
 }
 ```
-
-### Expected Output
-For the input strings `"abc"` and `"fff"`, the output will be:
-```
-diff:
-delete from pos 0
-delete from pos 1
-delete from pos 2
-insert in pos 0 char "f"
-insert in pos 1 char "f"
-insert in pos 2 char "f"
-
-packed diff:
-delete from pos 0 3 chars
-insert in pos 0 chars "fff"
-```
-
-### Explanation
-To transform `"abc"` into `"fff"`, the `diff` function generates the following operations:
-- Delete the character at position 0 (`a`).
-- Delete the character at position 1 (`b`).
-- Delete the character at position 2 (`c`).
-- Insert `f` at position 0.
-- Insert `f` at position 1.
-- Insert `f` at position 2.
-
-The `pack` function then groups these operations into a more compact form:
-- Combine the three deletions into a single operation: delete 3 characters starting from position 0.
-- Combine the three insertions into a single operation: insert the string `"fff"` at position 0.
-
-This packed representation reduces the memory footprint and simplifies applying the diff in scenarios where consecutive operations can be processed together.
 
 ## Contributing
 Contributions are welcome! If you have ideas for optimizations, additional features, or bug fixes, please open an issue or submit a pull request.

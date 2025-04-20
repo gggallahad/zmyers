@@ -284,6 +284,47 @@ pub fn pack(allocator: std_.mem.Allocator, operations: []Operation) std_.mem.All
     return result;
 }
 
+pub fn unpack(allocator: std_.mem.Allocator, packed_operations: []PackedOperation) std_.mem.Allocator.Error!Diff {
+    const arena_allocator = try Diff.createArenaAllocator(allocator);
+    errdefer Diff.destroyArenaAllocator(arena_allocator);
+
+    var operations = std_.ArrayList(Operation).init(arena_allocator.allocator());
+    errdefer operations.deinit();
+
+    for (packed_operations) |packed_operation| {
+        switch (packed_operation) {
+            .delete => |delete| {
+                for (0..delete.len) |i| {
+                    const pos = delete.start_pos + i;
+                    const operation_delete = Operation{
+                        .delete = .{
+                            .pos = pos,
+                        },
+                    };
+                    try operations.append(operation_delete);
+                }
+            },
+            .insert => |insert| {
+                for (insert.chars, 0..) |char, i| {
+                    const pos = insert.start_pos + i;
+                    const operation_insert = Operation{
+                        .insert = .{
+                            .pos = pos,
+                            .char = char,
+                        },
+                    };
+                    try operations.append(operation_insert);
+                }
+            },
+        }
+    }
+
+    const operations_slice = try operations.toOwnedSlice();
+
+    const result = Diff.init(arena_allocator, operations_slice);
+    return result;
+}
+
 pub const Diff = struct {
     arena_allocator: *std_.heap.ArenaAllocator,
     operations: []Operation,
